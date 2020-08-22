@@ -1,0 +1,601 @@
+---
+title: "plotting"
+output: html_document
+---
+
+
+https://vincentarelbundock.github.io/modelsummary/
+
+знают ли люди, которые живут выше, язык соседей, которые живут ниже? но не наоборот
+- схлопунть все деревни, где говорят на одном языке в кластере, и посчитать сред. высотность
+
+язык -- min(villages_with_this_language$elevation)
+calulcate altitude of each L in each cluster as the minimum altitude of all villages where the L is spoken in the cluster
+model predicts the knowledge of L2 based on the difference in the altitude between L1 of the village and L2
+
+one datapoint -- one language 
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(leaflet)
+library(dplyr)
+library(forcats)
+library(viridis)
+library(lme4)
+library(lmerTest)
+library(ggforce)
+library(plotly)
+library(sjPlot)
+library(ggeffects)
+library(spatstat)
+library(ggraph)
+library(igraph)
+library(ggrepel)
+library(ggmap)
+library(geosphere)
+library(phangorn)
+library(ggtda)
+```
+
+
+## Elelevation and villages
+
+```{r}
+data <- read.csv('elevation_villages_correct.csv')
+data
+```
+
+```{r}
+data %>% 
+  group_by(language) %>% 
+  slice(which.min(elevation)) %>% 
+  select(eng_vil_name, elevation) %>% 
+  write.csv('minimum_vil.csv')
+
+```
+
+
+```{r}
+ggplot(data=data, aes(x=fct_reorder(language, elevation, .fun=mean, .desc=TRUE), y=elevation))+
+  theme_minimal()+
+  # stat_summary(fun.data = mean_se,  
+  #                geom = "errorbar", color='black', alpha=0.3)+
+  geom_jitter(color='grey', alpha=0.1)+
+  stat_summary(aes(color=Family), fun = "mean", geom = "point", size=2)+
+  labs(y = "Elevation", x='Language', color='Family')+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  theme(legend.position = "top")+
+  scale_color_viridis(discrete = TRUE, option = "D")+
+  coord_flip()+
+  theme(axis.text.x=element_text(angle=0, hjust=0.5),
+        # text = element_text(family = "Andale Mono"),
+        legend.position = 'bottom')+
+  geom_hline(aes(yintercept=mean(elevation)), color='red', linetype='dotted')+
+  guides(colour = guide_legend(nrow = 1))
+
+ggsave('elev_lang.jpg', width = 8, height = 5)
+```
+
+```{r}
+data$log_c <- 0
+data$log_c <- log(data$census_1926)
+
+data$el_100 <- plyr::round_any(data$elevation, 1, f = ceiling)
+
+data %>%
+  group_by(el_100) %>%
+  summarise(mean_c = mean(log_c)) %>%
+  ggplot(aes(x=el_100, y=mean_c))+
+    # geom_smooth()+
+    geom_point()
+```
+
+
+
+```{r}
+ggplot(data=data, aes(x=fct_reorder(language, elevation, .fun=mean, .desc=TRUE), y=elevation))+
+  theme_bw()+
+  # geom_boxplot(aes(fill=Family))+
+  geom_dotplot(aes(fill=Family, color=Family), binaxis = "y", stackdir = "center", position = "dodge", binwidth = 60, method = 'histodot')+
+  facet_wrap(vars(Family), scales = "free_y", strip.position = 'top')+
+  labs(y = "Elevation", x='Language', size=' 1926 Census\n data')+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  theme(legend.position = "top")+
+  scale_color_viridis(discrete = TRUE, option = "D")+
+  coord_flip()+
+  theme(legend.position = "none",
+        legend.key = element_blank(), 
+        strip.text = element_text(face="bold"), 
+        axis.text.x=element_text(angle=0, hjust=0.5)) 
+
+ggsave('elev_lang.jpg', width = 8, height = 5)
+```
+
+
+```{r}
+data[data$language == 'Godoberi ',] %>% 
+  write.csv('godoberi.csv')
+```
+
+
+```{r}
+ggplot(data, aes(y=elevation, x=Family))+
+  theme_bw()+
+  geom_dotplot(aes(fill=Family, color=Family), binaxis = "y", stackdir = "center", position = "dodge", binwidth = 41, method = 'histodot')+
+  theme(legend.position = "none",
+        legend.key = element_blank(), 
+        strip.text = element_text(face="bold"), 
+        axis.text.x=element_text(angle=0, hjust=0.5))+
+  # stat_summary(fun = "mean", geom = "crossbar", size=0.5, alpha=0.1, color='grey')+
+  # geom_hline(aes(yintercept=mean(elevation)), color='red', linetype='dotted')
+
+ggsave('family_dist.jpg', width = 8, height = 5)
+```
+
+
+
+```{r}
+# dplyr::select(data, elevation.round, census_1926) %>% 
+#   group_by(elevation.round) %>% 
+#   summarise(mean_pop = mean(census_1926), count=n()) %>%
+#   ggplot(aes(x=elevation.round, y=mean_pop))+
+#   geom_point()
+```
+
+
+### Predictions
+
+```{r}
+all <- read.csv('all.csv')
+```
+
+
+
+```{r}
+ggplot(data = all, aes(y=elevation, x=factor(number.of.lang.strat)))+
+  theme_bw()+
+  geom_violin(fill='grey', color='grey', trim = TRUE)
+```
+
+
+```{r}
+events <- 0:4
+density <- dpois(x = events, lambda = mean(all$number.of.lang.strat))
+
+ggplot()+
+  geom_point(aes(y=density, x=0:4, color='Poisson distribution'))+
+  geom_line(aes(y=density, x=0:4, color='Poisson distribution'))+
+  ylim(0, 1)+
+  geom_point(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
+  geom_line(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
+  labs(y = "Probability", x='ITM')
+```
+
+```{r}
+fit_p <- glm(number.of.lang.strat ~ elevation + year_of_birth*sex + language.population*residence, family="poisson", data=all)
+```
+
+```{r}
+fit_lin <- glm(number.of.lang.strat ~ elevation + year_of_birth*sex + language.population*residence, data=all)
+```
+
+
+```{r}
+ggplot(ggpredict(fit_lin, terms = c('elevation')), aes(x, predicted)) +
+  geom_line()+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)+
+  theme_bw()
+  # facet_wrap(~facet)
+```
+
+```{r}
+ITM <- read.csv('ITM.csv')
+```
+
+```{r}
+all <- read.csv('all.csv')
+```
+
+```{r}
+all_subset <- all[all$year_of_birth < 1930,]
+
+all_subset$norm_yb <- scale(all_subset$year_of_birth)
+all_subset$norm_el <- scale(all_subset$elevation)
+all_subset$norm_itm <- scale(all_subset$number.of.lang.strat)
+all_subset$norm_pop <- scale(all_subset$language.population)
+
+all$norm_yb <- scale(all$year_of_birth)
+all$norm_el <- scale(all$elevation)
+all$norm_itm <- scale(all$number.of.lang.strat)
+all$norm_pop <- scale(all$language.population)
+all$norm_vil_pop <- scale(all$village.population)
+
+pois_2 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb:sex) + (1|residence:mother.tongue), data=all_subset, family='poisson')
+summary(pois_2)
+```
+
+```{r}
+garik_model <- glmer(number.of.lang.strat ~ sex + norm_pop + (1|norm_yb) + (1|residence), data=all, family='poisson')
+summary(garik_model)
+```
+
+```{r}
+ggplot(data=all, aes(x=norm_el, y=norm_vil_pop))+
+  geom_point()
+```
+
+
+```{r}
+pois_2_pop <- glmer(number.of.lang ~ norm_el + (1|norm_yb) + (1|sex) + (1|residence) + norm_pop + norm_vil_pop, data=all, family='poisson')
+summary(pois_2_pop)
+```
+
+
+
+
+```{r}
+pois_1 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb:sex) + (1|residence:mother.tongue), data=ITM, family='poisson')
+summary(pois_1)
+```
+
+
+```{r}
+ITM
+```
+
+
+```{r}
+ITM$norm_yb <- scale(ITM$year_of_birth)
+ITM$norm_el <- scale(ITM$elevation)
+ITM$norm_itm <- scale(ITM$number.of.lang.strat)
+```
+
+
+```{r}
+pois_1 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb:sex) + (1|residence:mother.tongue), data=ITM, family='poisson')
+summary(pois_1)
+```
+
+```{r}
+AIC(pois_1)
+```
+
+
+```{r}
+ITM_el <- dplyr::select(ITM, elevation, number.of.lang.strat) %>% 
+  group_by(elevation) %>% 
+  summarise(mean_itm = mean(number.of.lang.strat), count=n())
+
+ITM_el
+```
+
+```{r}
+pred <- ggpredict(pois_1, terms = c('norm_el'))
+true_sequence <- seq(min(ITM$elevation), max(ITM$elevation), length.out=21)
+```
+
+
+
+```{r}
+ggplot()+
+  geom_point(data=ITM_el, aes(x=elevation, y=mean_itm, size=count), color='blue', alpha=.5)+
+  geom_line(data=pred, aes(x=true_sequence, y=predicted), size=0.8)+
+  geom_ribbon(aes(ymin = pred$conf.low, ymax = pred$conf.high, x=true_sequence), alpha = .15)+
+  theme_bw()+
+  labs(x = "Elevation", y='Average ITM', size=' Number\n of observations')
+
+ggsave('poison_observ.jpg', width = 7, height = 4)
+```
+
+### Some geospatial ideas
+
+#### ITM
+
+```{r}
+itm_coors <- read.csv('itm_coords_no_Hinuq.csv')
+itm_coors <- itm_coors[complete.cases(itm_coors), ]
+itm_coors
+```
+
+```{r}
+itm_vill <- itm_coors %>% 
+  group_by(index, Lat, Lon, elevation) %>% 
+  summarise(mean_itm = mean(number.of.lang.strat), count=n())
+
+itm_vill
+```
+
+
+```{r}
+matrix <- distm(itm_vill[,c('Lon','Lat')], itm_vill[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
+matrix[matrix < 19] <- 0
+mode(matrix) <- "numeric"
+rownames(matrix) <- itm_vill$index
+colnames(matrix) <- itm_vill$index
+net <- graph.adjacency(matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+itm_vill$knn_dist <- knn(net)$knn
+
+itm_vill$degree <- degree(net)
+
+ggplot(itm_vill, aes(x=factor(degree), y=mean_itm, label=index))+
+  theme_bw()+
+  geom_boxplot()
+
+itm_vill %>% 
+  group_by(degree)  %>% 
+  summarise(mean = mean(mean_itm), sd = sd(mean_itm),
+            n = n())  %>% 
+  mutate(se = sd / sqrt(n),
+         lower.ci = mean - qt(1 - (0.05 / 2), n - 1) * se,
+         upper.ci = mean + qt(1 - (0.05 / 2), n - 1) * se)  %>% 
+  ggplot(aes(x=factor(degree), y=mean))+
+    geom_point()+
+    geom_errorbar(aes(ymin=lower.ci, ymax=upper.ci))
+```
+
+
+```{r}
+itm_vill %>% 
+  group_by(degree)  %>% 
+  summarise(mean = mean(mean_itm), sd = sd(mean_itm),
+            n = n())  %>% 
+  mutate(se = sd / sqrt(n),
+         lower.ci = mean - qt(1 - (0.05 / 2), n - 1) * se,
+         upper.ci = mean + qt(1 - (0.05 / 2), n - 1) * se)  %>% 
+  ggplot(aes(x=factor(degree), y=mean))+
+    geom_point()+
+    geom_errorbar(aes(ymin=lower.ci, ymax=upper.ci))
+```
+
+
+```{r}
+matrix <- distm(itm_vill[,c('Lon','Lat')], itm_vill[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
+matrix[matrix > 12] <- 0
+mode(matrix) <- "numeric"
+rownames(matrix) <- itm_vill$index
+colnames(matrix) <- itm_vill$index
+net <- graph.adjacency(matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+net %>%  
+  ggraph(layout = 'kk')+
+  geom_edge_link(color = "orange")+
+  theme_void()+
+  geom_node_point(aes(size=itm_vill$mean_itm, color=itm_vill$elevation)) +  
+  geom_node_text(size = 4,
+                 aes(label = name), repel=TRUE)+
+  labs(size='Mean ITM', color='Elevation')
+
+ggsave('village_graph.jpg', width = 7, height = 4)
+```
+
+```{r}
+matrix <- distm(itm_vill[,c('Lon','Lat')], itm_vill[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
+matrix[matrix > 12] <- 0
+mode(matrix) <- "numeric"
+rownames(matrix) <- itm_vill$index
+colnames(matrix) <- itm_vill$index
+net <- graph.adjacency(matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+ggraph(graph=net, x=itm_vill$Lon, y=itm_vill$Lat)+
+  theme_void()+
+  geom_edge_link(color = "orange")+
+  geom_node_point(aes(color=itm_vill$mean_itm)) +  
+  geom_node_text(size = 4,
+                 aes(label = name), repel=TRUE)+
+  labs(size='Mean ITM', color='Mean ITM')+
+  annotation_map(map_data("world"), fill = NA, colour = "grey50")
+
+ggsave('village_graph_map.jpg', width = 7, height = 4)
+```
+
+
+
+#### Families
+
+```{r}
+data_short <- data
+matrix_fam <- distm(data_short[,c('Lon','Lat')], data_short[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
+```
+
+```{r}
+matrix_fam[matrix_fam > 6] <- 0
+rownames(matrix_fam) <- data_short$eng_vil_name
+colnames(matrix_fam) <- data_short$eng_vil_name
+net_fam <- graph.adjacency(matrix_fam, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+net_fam %>%
+  # ggraph(layout = 'kk')+
+  ggraph(x=data_short$Lon, y=data_short$Lat)+
+  geom_edge_link(color = "orange")+
+  theme_void()+
+  geom_node_point(aes(color=data_short$Family), size=0.5)+
+  labs(color='Family')
+  # geom_node_text(aes(label = name), repel=TRUE)+
+  # ggsave('village_graph_map.pdf', width = 30, height = 30)
+```
+
+```{r}
+data$neighbours_6 <- degree(net_fam)
+data$log_c <- log(data$census_1926)
+
+data$elevation_round <- plyr::round_any(data$elevation, 100, f = ceiling)
+
+data %>%
+  group_by(elevation_round) %>%
+  summarise(neighbours = mean(neighbours_6), n_6 = neighbours_6, size=n(), pop = census_1926) %>%
+  ggplot(aes(x=elevation_round, y=neighbours))+
+    geom_line()+
+    geom_point(aes(y=n_6, size=pop), alpha=0.1, color='blue')+
+    theme_bw()
+```
+
+
+```{r}
+by_lang <- data  %>%  
+  group_by(language, Family)  %>%  
+  summarise(Lon = mean(Lon), Lat = mean(Lat), n = n())
+
+m_l <- distm(by_lang[,c('Lon','Lat')], by_lang[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
+m_l[m_l > 25] <- 0
+rownames(m_l) <- by_lang$language
+colnames(m_l) <- by_lang$language
+net_l <- graph.adjacency(m_l, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+net_l %>%
+  ggraph(layout = 'kk')+
+  geom_edge_link(color = "orange")+
+  theme_void()+
+  geom_node_point(aes(color=by_lang$Family))+
+  geom_node_text(size = 2,
+                aes(label = name), repel=TRUE)+
+  labs(color='Family')
+```
+
+How many members of different families are around each village:
+
+```{r}
+data_short <- data
+matrix_fam <- distm(data_short[,c('Lon','Lat')], data_short[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
+matrix_fam[matrix_fam > 100] <- 0
+net_fam <- graph.adjacency(matrix_fam, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+V(net_fam)$label <- data$Family
+
+SameLabel <-  function(e) {
+    V(net_fam)[ends(net_fam, e)[1]]$label == V(net_fam)[ends(net_fam, e)[2]]$label }
+g2 <- delete_edges(net_fam, which(sapply(E(net_fam), SameLabel)))
+
+data_short$degree <- degree(g2)
+
+ggplot(data=data_short, aes(x=Family, y=degree))+
+  geom_boxplot()
+  # geom_dotplot(aes(fill=Family, color=Family), binaxis = "y", stackdir = "center", position = "dodge", binwidth = 0.45)
+
+# ggsave('degree_family.jpg', width = 7, height = 4)
+```
+
+
+
+```{r}
+data_short  %>% 
+  group_by(Family)  %>% 
+  summarise(mean = mean(degree))
+```
+
+```{r}
+data_itm_fam <- read.csv('itm_coords_Family.csv')
+```
+
+```{r}
+itm_vill_fam <- data_itm_fam %>% 
+  group_by(index, Lat, Lon, elevation, Family, mother.tongue) %>% 
+  summarise(mean_itm = mean(number.of.lang.strat), count=n())
+
+itm_vill_fam <- itm_vill_fam[!itm_vill_fam$index == 'Hinuq',]
+itm_vill_fam[itm_vill_fam$mother.tongue == 'кадарский даргинский',]$Family <- 'Dargwa'
+itm_vill_fam[itm_vill_fam$mother.tongue == 'сирхинский даргинский',]$Family <- 'Dargwa'
+itm_vill_fam[itm_vill_fam$mother.tongue == 'цудахарский даргинский',]$Family <- 'Dargwa'
+itm_vill_fam[itm_vill_fam$mother.tongue == 'гдымско-фийский лезгинский',]$Family <- 'Lezgic'
+itm_vill_fam[itm_vill_fam$mother.tongue == 'цахурский',]$Family <- 'Lezgic'
+itm_vill_fam[itm_vill_fam$mother.tongue == 'азербайджанский',]$Family <- 'Turkic'
+itm_vill_fam[itm_vill_fam$mother.tongue == 'ахвахский',]$Family <- 'Andic'
+itm_vill_fam$Lat <- itm_vill$Lat
+itm_vill_fam$Lon <- itm_vill$Lon
+
+itm_vill_fam
+```
+
+
+```{r}
+matrix <- distm(itm_vill_fam[,c('Lon','Lat')], itm_vill_fam[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
+matrix[matrix > 25] <- 0
+mode(matrix) <- "numeric"
+rownames(matrix) <- itm_vill_fam$index
+colnames(matrix) <- itm_vill_fam$index
+net <- graph.adjacency(matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+# V(net)$label <- itm_vill_fam$Family
+V(net)$label <- itm_vill_fam$mother.tongue
+SameLabel <-  function(e) {
+    V(net)[ends(net, e)[1]]$label == V(net)[ends(net, e)[2]]$label }
+g2 <- delete_edges(net, which(sapply(E(net), SameLabel)))
+
+itm_vill_fam$deg <- degree(g2)
+
+# DiffLabel <-  function(e) {
+#     V(net)[ends(net, e)[1]]$label != V(net)[ends(net, e)[2]]$label }
+# g3 <- delete_edges(net, which(sapply(E(net), DiffLabel)))
+# 
+itm_vill_fam$deg <- degree(g2)
+# itm_vill_fam$deg_tot <- degree(g3)
+# itm_vill_fam$deg <- log(itm_vill_fam$deg_n/itm_vill_fam$deg_tot)
+
+g2 %>%  
+  ggraph(layout = 'kk')+
+  geom_edge_link(color = "orange", alpha=0.5)+
+  theme_void()+
+  geom_node_point(aes(color=itm_vill_fam$Family))+
+  scale_color_brewer(palette="Dark2")+
+  labs(color='Family')
+
+# ggsave('village_graph.jpg', width = 7, height = 4)
+```
+
+```{r}
+ggplot(itm_vill_fam, aes(y=mean_itm, x=deg))+
+  geom_point()
+```
+
+
+```{r}
+ggplot(itm_vill_fam, aes(x=Family, y=deg))+
+  geom_boxplot()+
+  labs(x='Degree')
+```
+
+
+
+
+```{r}
+itm_deg_m <- lmer(mean_itm ~ deg + (1|Family:mother.tongue) + count, itm_vill_fam)
+summary(itm_deg_m)
+```
+
+
+### extract degree from bigger dataset !
+
+```{r}
+pred <- ggpredict(itm_deg_m, terms = c('deg'))
+
+ggplot()+
+  geom_point(data=itm_vill_fam, aes(y=mean_itm, x=deg, color=Family))+
+  geom_text_repel(data=itm_vill_fam, aes(label=index, y=mean_itm, x=deg))+
+  geom_line(data=pred, aes(x=pred$x, y=predicted), size=0.8)+
+  geom_ribbon(aes(ymin = pred$conf.low, ymax = pred$conf.high, x=pred$x), alpha = .15)+
+  scale_color_brewer(palette="Dark2")
+```
+
+Data from bigger dataset:
+
+```{r}
+overlap <- data_short[data_short$eng_vil_name %in% itm_vill_fam$index,]$eng_vil_name
+ov_itm_vill_fam <- itm_vill_fam[itm_vill_fam$index %in% overlap,]
+data_all <- data_short[data_short$eng_vil_name %in% itm_vill_fam$index,]
+itm_vill_fam_m <- merge(x= ov_itm_vill_fam, y = data_all[, c('eng_vil_name', 'degree')], by.x='index', by.y = 'eng_vil_name', all=TRUE, copy=TRUE)
+
+itm_deg <- lmer(mean_itm ~ degree + (1|Family:mother.tongue) + count, itm_vill_fam_m)
+summary(itm_deg)
+
+pred <- ggpredict(itm_deg, terms = c('degree'))
+
+ggplot()+
+  geom_point(data=itm_vill_fam_m, aes(y=mean_itm, x=degree, color=Family))+
+  geom_text_repel(data=itm_vill_fam_m, aes(label=index, y=mean_itm, x=degree))+
+  geom_line(data=pred, aes(x=pred$x, y=predicted), size=0.8)+
+  geom_ribbon(aes(ymin = pred$conf.low, ymax = pred$conf.high, x=pred$x), alpha = .15)+
+  scale_color_brewer(palette="Dark2")
+```
