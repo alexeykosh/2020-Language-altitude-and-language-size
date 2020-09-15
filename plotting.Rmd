@@ -3,20 +3,7 @@ title: "plotting"
 output: html_document
 ---
 
-
-https://vincentarelbundock.github.io/modelsummary/
-
-знают ли люди, которые живут выше, язык соседей, которые живут ниже? но не наоборот
-- схлопунть все деревни, где говорят на одном языке в кластере, и посчитать сред. высотность
-
-язык -- min(villages_with_this_language$elevation)
-calulcate altitude of each L in each cluster as the minimum altitude of all villages where the L is spoken in the cluster
-model predicts the knowledge of L2 based on the difference in the altitude between L1 of the village and L2
-
-one datapoint -- one language 
-
-
-
+# ITM and elevation -- preliminary study.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -42,7 +29,9 @@ library(ggtda)
 ```
 
 
-## Elelevation and villages
+## Descriptive stats 
+
+### Average elevation across different languages
 
 ```{r}
 data <- read.csv('elevation_villages_correct.csv')
@@ -57,7 +46,6 @@ data %>%
   write.csv('minimum_vil.csv')
 
 ```
-
 
 ```{r}
 ggplot(data=data, aes(x=fct_reorder(language, elevation, .fun=mean, .desc=TRUE), y=elevation))+
@@ -95,6 +83,7 @@ data %>%
 ```
 
 
+### Average elevation across different languages (groupped by family)
 
 ```{r}
 ggplot(data=data, aes(x=fct_reorder(language, elevation, .fun=mean, .desc=TRUE), y=elevation))+
@@ -122,6 +111,8 @@ data[data$language == 'Godoberi ',] %>%
 ```
 
 
+### Average elevation across families (groupped by family)
+
 ```{r}
 ggplot(data, aes(y=elevation, x=Family))+
   theme_bw()+
@@ -147,13 +138,14 @@ ggsave('family_dist.jpg', width = 8, height = 5)
 ```
 
 
-### Predictions
+## Generalized Linear Models
+
 
 ```{r}
 all <- read.csv('all.csv')
 ```
 
-
+### Average elevation across different number of L2's
 
 ```{r}
 ggplot(data = all, aes(y=elevation, x=factor(number.of.lang.strat)))+
@@ -163,17 +155,20 @@ ggplot(data = all, aes(y=elevation, x=factor(number.of.lang.strat)))+
 
 
 ```{r}
-events <- 0:4
-density <- dpois(x = events, lambda = mean(all$number.of.lang.strat))
-
-ggplot()+
-  geom_point(aes(y=density, x=0:4, color='Poisson distribution'))+
-  geom_line(aes(y=density, x=0:4, color='Poisson distribution'))+
-  ylim(0, 1)+
-  geom_point(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
-  geom_line(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
-  labs(y = "Probability", x='ITM')
+# events <- 0:4
+# density <- dpois(x = events, lambda = mean(all$number.of.lang.strat))
+# 
+# ggplot()+
+#   geom_point(aes(y=density, x=0:4, color='Poisson distribution'))+
+#   geom_line(aes(y=density, x=0:4, color='Poisson distribution'))+
+#   ylim(0, 1)+
+#   geom_point(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
+#   geom_line(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
+#   labs(y = "Probability", x='ITM')
 ```
+
+
+### Poisson and linear regressions
 
 ```{r}
 fit_p <- glm(number.of.lang.strat ~ elevation + year_of_birth*sex + language.population*residence, family="poisson", data=all)
@@ -183,6 +178,7 @@ fit_p <- glm(number.of.lang.strat ~ elevation + year_of_birth*sex + language.pop
 fit_lin <- glm(number.of.lang.strat ~ elevation + year_of_birth*sex + language.population*residence, data=all)
 ```
 
+Linear: 
 
 ```{r}
 ggplot(ggpredict(fit_lin, terms = c('elevation')), aes(x, predicted)) +
@@ -191,6 +187,18 @@ ggplot(ggpredict(fit_lin, terms = c('elevation')), aes(x, predicted)) +
   theme_bw()
   # facet_wrap(~facet)
 ```
+
+Poisson:
+
+```{r}
+ggplot(ggpredict(fit_p, terms = c('elevation')), aes(x, predicted)) +
+  geom_line()+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .1)+
+  theme_bw()
+  # facet_wrap(~facet)
+```
+
+
 
 ```{r}
 ITM <- read.csv('ITM.csv')
@@ -218,10 +226,14 @@ pois_2 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb:sex) + (1|residence:
 summary(pois_2)
 ```
 
+Garik M. model:
+
 ```{r}
 garik_model <- glmer(number.of.lang.strat ~ sex + norm_pop + (1|norm_yb) + (1|residence), data=all, family='poisson')
 summary(garik_model)
 ```
+
+Normalized elevation vs. normalized village population.
 
 ```{r}
 ggplot(data=all, aes(x=norm_el, y=norm_vil_pop))+
@@ -235,6 +247,12 @@ summary(pois_2_pop)
 ```
 
 
+```{r}
+ITM$norm_yb <- scale(ITM$year_of_birth)
+ITM$norm_el <- scale(ITM$elevation)
+ITM$norm_itm <- scale(ITM$number.of.lang.strat)
+```
+
 
 
 ```{r}
@@ -242,18 +260,7 @@ pois_1 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb:sex) + (1|residence:
 summary(pois_1)
 ```
 
-
-```{r}
-ITM
-```
-
-
-```{r}
-ITM$norm_yb <- scale(ITM$year_of_birth)
-ITM$norm_el <- scale(ITM$elevation)
-ITM$norm_itm <- scale(ITM$number.of.lang.strat)
-```
-
+### Poisson regression vs. real data
 
 ```{r}
 pois_1 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb:sex) + (1|residence:mother.tongue), data=ITM, family='poisson')
@@ -565,8 +572,6 @@ itm_deg_m <- lmer(mean_itm ~ deg + (1|Family:mother.tongue) + count, itm_vill_fa
 summary(itm_deg_m)
 ```
 
-
-### extract degree from bigger dataset !
 
 ```{r}
 pred <- ggpredict(itm_deg_m, terms = c('deg'))
