@@ -26,6 +26,7 @@ library(ggmap)
 library(geosphere)
 library(phangorn)
 library(ggtda)
+library(knitr)
 ```
 
 
@@ -35,7 +36,6 @@ library(ggtda)
 
 ```{r}
 data <- read.csv('elevation_villages_correct.csv')
-data
 ```
 
 ```{r}
@@ -44,12 +44,13 @@ data %>%
   slice(which.min(elevation)) %>% 
   select(eng_vil_name, elevation) %>% 
   write.csv('minimum_vil.csv')
-
 ```
+
+Average elevation across different languages (grey dots represent different villages:)
 
 ```{r}
 ggplot(data=data, aes(x=fct_reorder(language, elevation, .fun=mean, .desc=TRUE), y=elevation))+
-  theme_minimal()+
+  theme_bw()+
   # stat_summary(fun.data = mean_se,  
   #                geom = "errorbar", color='black', alpha=0.3)+
   geom_jitter(color='grey', alpha=0.1)+
@@ -68,6 +69,8 @@ ggplot(data=data, aes(x=fct_reorder(language, elevation, .fun=mean, .desc=TRUE),
 ggsave('elev_lang.jpg', width = 8, height = 5)
 ```
 
+How the population size correlates with elevation? Well, there seems to be a slight decrease with higher elevations (although we cannot trust those regressions).
+
 ```{r}
 data$log_c <- 0
 data$log_c <- log(data$census_1926)
@@ -78,8 +81,10 @@ data %>%
   group_by(el_100) %>%
   summarise(mean_c = mean(log_c)) %>%
   ggplot(aes(x=el_100, y=mean_c))+
-    # geom_smooth()+
-    geom_point()
+    geom_point(alpha=0.4)+
+    geom_smooth(method = 'lm', color='red')+
+    theme_bw()+
+    labs(y = "Mean population size", x='Elevation')
 ```
 
 
@@ -128,22 +133,15 @@ ggsave('family_dist.jpg', width = 8, height = 5)
 ```
 
 
-
-```{r}
-# dplyr::select(data, elevation.round, census_1926) %>% 
-#   group_by(elevation.round) %>% 
-#   summarise(mean_pop = mean(census_1926), count=n()) %>%
-#   ggplot(aes(x=elevation.round, y=mean_pop))+
-#   geom_point()
-```
-
-
 ## Generalized Linear Models
 
 
-```{r}
+```{r, layout="l-body-outset"}
 all <- read.csv('all.csv')
+kable(head(all))
 ```
+
+
 
 ### Average elevation across different number of L2's
 
@@ -151,20 +149,6 @@ all <- read.csv('all.csv')
 ggplot(data = all, aes(y=elevation, x=factor(number.of.lang.strat)))+
   theme_bw()+
   geom_violin(fill='grey', color='grey', trim = TRUE)
-```
-
-
-```{r}
-# events <- 0:4
-# density <- dpois(x = events, lambda = mean(all$number.of.lang.strat))
-# 
-# ggplot()+
-#   geom_point(aes(y=density, x=0:4, color='Poisson distribution'))+
-#   geom_line(aes(y=density, x=0:4, color='Poisson distribution'))+
-#   ylim(0, 1)+
-#   geom_point(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
-#   geom_line(aes(x=co$x, y=co$freq/sum(co$freq), color='Actual data'))+
-#   labs(y = "Probability", x='ITM')
 ```
 
 
@@ -272,12 +256,12 @@ AIC(pois_1)
 ```
 
 
-```{r}
+```{r, layout="l-body-outset"}
+
 ITM_el <- dplyr::select(ITM, elevation, number.of.lang.strat) %>% 
   group_by(elevation) %>% 
   summarise(mean_itm = mean(number.of.lang.strat), count=n())
-
-ITM_el
+kable(head(ITM_el))
 ```
 
 ```{r}
@@ -298,24 +282,164 @@ ggplot()+
 ggsave('poison_observ.jpg', width = 7, height = 4)
 ```
 
+### Case stydy: languages spoken at the highest attitudes: 
+
+Hypothesis: isolation is not the primary source of language diversity. 
+
+```{r}
+all$rounded.yb <- plyr::round_any(all$year_of_birth, 5, f = ceiling)
+```
+
+
+```{r}
+  L2 <- all[all$mother.tongue != 'рутульский' & all$'рутульский' == 1,] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(рутульский), count = n(), itm = mean(number.of.lang)) 
+  L1 <- all[all$mother.tongue == 'рутульский',] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(рутульский), count = n(), itm = mean(number.of.lang)) 
+  ggplot()+
+    theme_bw()+
+    geom_point(data = L2, aes(x=rounded.yb, y=count, colour='L2', size=itm))+
+    geom_point(data = L1, aes(x=rounded.yb, y=count, colour='L1', size=itm))+
+    labs(y = "Number of speakers", x= 'Year of birth', colour='Type')+
+    ggtitle('Rutul knowledge as L1 or L2')
+```
+
+
+```{r}
+  L2 <- all[all$mother.tongue != 'аварский' & all$'аварский' == 1,] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(аварский), count = n(), itm = mean(number.of.lang)) 
+  L1 <- all[all$mother.tongue == 'аварский',] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(аварский), count = n(), itm = mean(number.of.lang)) 
+  ggplot()+
+    theme_bw()+
+    geom_point(data = L2, aes(x=rounded.yb, y=count, colour='L2', size=itm))+
+    geom_point(data = L1, aes(x=rounded.yb, y=count, colour='L1', size=itm))+
+    labs(y = "Number of speakers", x= 'Year of birth', colour='Type')+
+    ggtitle('Avar knowledge as L1 or L2')
+```
+
+```{r}
+  L2 <- all[all$mother.tongue != 'лакский' & all$'лакский' == 1,] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(лакский), count = n(), itm = mean(number.of.lang)) 
+  L1 <- all[all$mother.tongue == 'лакский',] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(лакский), count = n(), itm = mean(number.of.lang)) 
+  ggplot()+
+    theme_bw()+
+    geom_point(data = L2, aes(x=rounded.yb, y=count, colour='L2', size=itm))+
+    geom_point(data = L1, aes(x=rounded.yb, y=count, colour='L1', size=itm))+
+    labs(y = "Number of speakers", x= 'Year of birth', colour='Type')+
+     ggtitle('Lak knowledge as L1 or L2')
+```
+
+
+```{r}
+  L2 <- all[all$mother.tongue != 'азербайджанский' & all$'азербайджанский' == 1,] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(азербайджанский), count = n(), itm = mean(number.of.lang)) 
+  L1 <- all[all$mother.tongue == 'азербайджанский',] %>%
+    group_by(rounded.yb) %>%
+    mutate(mean_itm = mean(лакский), count = n(), itm = mean(number.of.lang)) 
+  ggplot()+
+    theme_bw()+
+    geom_point(data = L2, aes(x=rounded.yb, y=count, colour='L2', size=itm))+
+    geom_point(data = L1, aes(x=rounded.yb, y=count, colour='L1', size=itm))+
+    labs(y = "Number of speakers", x= 'Year of birth', colour='Type')+
+     ggtitle('Azerbaijani knowledge as L1 or L2')
+```
+
+
+
+
+```{r}
+all %>%
+  group_by(rounded.yb) %>%
+  mutate(mean_itm = mean(рутульский), count = n()) %>%
+  ggplot(aes(x=rounded.yb, y=mean_itm))+
+    geom_point(aes(size=count))+
+    geom_smooth(aes(weight = count), method=loess,  color='red')+
+    theme_bw()+
+    labs(y = "Mean ITM", x= 'Year of birth', size=' Number of \n observations')
+```
+
+
+```{r}
+all %>%
+  group_by(rounded.yb) %>%
+  mutate(mean_itm = mean(аварский), count = n()) %>%
+  ggplot(aes(x=rounded.yb, y=mean_itm))+
+    geom_point(aes(size=count))+
+    geom_smooth(aes(weight = count), method=loess,  color='red')+
+    theme_bw()+
+    labs(y = "Mean ITM", x= 'Year of birth', size=' Number of \n observations')
+```
+
+```{r}
+all %>%
+  group_by(rounded.yb) %>%
+  mutate(mean_itm = mean(лакский), count = n()) %>%
+  ggplot(aes(x=rounded.yb, y=mean_itm))+
+    geom_point(aes(size=count))+
+    geom_smooth(aes(weight = count), method=loess,  color='red')+
+    theme_bw()+
+    labs(y = "Mean ITM", x= 'Year of birth', size=' Number of \n observations')
+```
+
+
+```{r}
+all %>%
+  group_by(rounded.yb) %>%
+  mutate(mean_itm = mean(сирхинский.даргинский), count = n()) %>%
+  ggplot(aes(x=rounded.yb, y=mean_itm))+
+    geom_point(aes(size=count))+
+    geom_smooth(aes(weight = count), method=loess,  color='red')+
+    theme_bw()+
+    labs(y = "Mean ITM", x= 'Year of birth', size=' Number of \n observations')
+```
+
+
+```{r}
+all %>%
+  group_by(mother.tongue) %>%
+  summarise(count = n()) %>%
+  arrange(count, desc = FALSE)
+```
+
+
+
+
 ### Some geospatial ideas
 
 #### ITM
 
-```{r}
+```{r, layout="l-body-outset"}
 itm_coors <- read.csv('itm_coords_no_Hinuq.csv')
 itm_coors <- itm_coors[complete.cases(itm_coors), ]
-itm_coors
+kable(head(itm_coors))
 ```
 
-```{r}
+```{r, layout="l-body-outset"}
 itm_vill <- itm_coors %>% 
   group_by(index, Lat, Lon, elevation) %>% 
   summarise(mean_itm = mean(number.of.lang.strat), count=n())
-
-itm_vill
+kable(head(itm_vill))
 ```
 
+## Case study: highest languages: 
+
+
+```{r}
+
+```
+
+
+
+## Different graph-based ideas
 
 ```{r}
 matrix <- distm(itm_vill[,c('Lon','Lat')], itm_vill[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
@@ -359,6 +483,7 @@ itm_vill %>%
     geom_errorbar(aes(ymin=lower.ci, ymax=upper.ci))
 ```
 
+The villages that are closer than 12km to each-other are interconnected with mean itm and elevation plotted for each village.
 
 ```{r}
 matrix <- distm(itm_vill[,c('Lon','Lat')], itm_vill[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
@@ -379,6 +504,8 @@ net %>%
 
 ggsave('village_graph.jpg', width = 7, height = 4)
 ```
+
+Same plot, but mapped to the actual geospatial data.
 
 ```{r}
 matrix <- distm(itm_vill[,c('Lon','Lat')], itm_vill[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
@@ -409,6 +536,8 @@ data_short <- data
 matrix_fam <- distm(data_short[,c('Lon','Lat')], data_short[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
 ```
 
+All the villages from the bigger dataset interconnected if they are closer than 6kms. Colored by family.
+
 ```{r}
 matrix_fam[matrix_fam > 6] <- 0
 rownames(matrix_fam) <- data_short$eng_vil_name
@@ -426,6 +555,8 @@ net_fam %>%
   # ggsave('village_graph_map.pdf', width = 30, height = 30)
 ```
 
+The number of neighbours in the graph above with regards to the elevation of the village (elevation is rounded to 100-s). Seems to be no effect. 
+
 ```{r}
 data$neighbours_6 <- degree(net_fam)
 data$log_c <- log(data$census_1926)
@@ -441,6 +572,7 @@ data %>%
     theme_bw()
 ```
 
+Same graph as with bigger dataset, but with multidag data.
 
 ```{r}
 by_lang <- data  %>%  
@@ -463,7 +595,7 @@ net_l %>%
   labs(color='Family')
 ```
 
-How many members of different families are around each village:
+How many members of different families are around each village?
 
 ```{r}
 data_short <- data
@@ -513,10 +645,9 @@ itm_vill_fam[itm_vill_fam$mother.tongue == 'азербайджанский',]$Fa
 itm_vill_fam[itm_vill_fam$mother.tongue == 'ахвахский',]$Family <- 'Andic'
 itm_vill_fam$Lat <- itm_vill$Lat
 itm_vill_fam$Lon <- itm_vill$Lon
-
-itm_vill_fam
 ```
 
+Villages that are closer to each other than 25kn and dont share the same mother tongue:
 
 ```{r}
 matrix <- distm(itm_vill_fam[,c('Lon','Lat')], itm_vill_fam[,c('Lon','Lat')], fun=distVincentyEllipsoid) / 1000
@@ -584,7 +715,7 @@ ggplot()+
   scale_color_brewer(palette="Dark2")
 ```
 
-Data from bigger dataset:
+It seems that using the number of neighbouring villages that are speaking different languages from the given village we can predict ITM! Here the data is extracted from the bigger dataset:
 
 ```{r}
 overlap <- data_short[data_short$eng_vil_name %in% itm_vill_fam$index,]$eng_vil_name
@@ -604,3 +735,4 @@ ggplot()+
   geom_ribbon(aes(ymin = pred$conf.low, ymax = pred$conf.high, x=pred$x), alpha = .15)+
   scale_color_brewer(palette="Dark2")
 ```
+
