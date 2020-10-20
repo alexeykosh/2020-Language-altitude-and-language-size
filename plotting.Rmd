@@ -36,6 +36,8 @@ library(knitr)
 
 ```{r}
 data <- read.csv('elevation_villages_correct.csv')
+
+nrow(data)
 ```
 
 ```{r}
@@ -235,6 +237,7 @@ summary(pois_2_pop)
 ITM$norm_yb <- scale(ITM$year_of_birth)
 ITM$norm_el <- scale(ITM$elevation)
 ITM$norm_itm <- scale(ITM$number.of.lang.strat)
+ITM$norm_population <- scale(ITM$village.population)
 ```
 
 
@@ -247,29 +250,79 @@ summary(pois_1)
 ### Poisson regression vs. real data
 
 ```{r}
+ITM
+```
+
+
+
+```{r}
+pois_2 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb) + (1|sex) + (1|residence:mother.tongue:norm_population), data=ITM, family='poisson')
+summary(pois_2)
+```
+
+
+```{r}
 pois_1 <- glmer(number.of.lang.strat ~ norm_el + (1|norm_yb:sex) + (1|residence:mother.tongue), data=ITM, family='poisson')
 summary(pois_1)
 ```
 
 ```{r}
+pois_1 <- glmer(number.of.lang.strat ~ norm_el + village.population + (1|norm_yb) + (1|sex) + (1|residence:mother.tongue), data=ITM, family='poisson')
+summary(pois_1)
+```
+
+
+```{r}
+plot(pois_2)
+```
+
+
+```{r}
 AIC(pois_1)
 ```
+
+```{r}
+AIC(pois_2)
+```
+
+Maybe there is a lack of data in our study? NB: should include the density parameter into the regression
+
+```{r}
+all
+```
+
+```{r}
+data
+```
+
+
+```{r}
+ggplot()+
+  geom_density(data=ITM, aes(x=elevation, fill=' Data with ITM \n observations'), alpha=0.5, color=alpha('red', 0))+
+  geom_density(data=data, aes(x=elevation, fill=' Data without \n ITM observations'), alpha=0.5, color=alpha('red', 0))+
+  geom_vline( color="#f78e30", xintercept = mean(ITM$elevation), linetype='dashed', size=1)+
+  geom_vline( color="#4581a9", xintercept = mean(data$elevation), linetype='dashed', size=1)+
+  theme_bw()+
+  scale_fill_manual(values=c("#f78e30", "#4581a9"))+
+  labs(x = "Elevation", y='Density', fill='Type of data')
+```
+
 
 
 ```{r, layout="l-body-outset"}
 
-ITM_el <- dplyr::select(ITM, elevation, number.of.lang.strat) %>% 
-  group_by(elevation) %>% 
-  summarise(mean_itm = mean(number.of.lang.strat), count=n())
-kable(head(ITM_el))
+# ITM_el <- dplyr::select(ITM, elevation, number.of.lang.strat) %>% 
+#   group_by(elevation) %>% 
+#   summarise(mean_itm = mean(number.of.lang.strat), count=n())
+# kable(head(ITM_el))
 ```
+
+First regression:
 
 ```{r}
 pred <- ggpredict(pois_1, terms = c('norm_el'))
 true_sequence <- seq(min(ITM$elevation), max(ITM$elevation), length.out=21)
 ```
-
-
 
 ```{r}
 ggplot()+
@@ -282,9 +335,47 @@ ggplot()+
 ggsave('poison_observ.jpg', width = 7, height = 4)
 ```
 
+Second regression (observations):
+
+```{r}
+pred <- ggpredict(pois_2, terms = c('norm_el'))
+true_sequence <- seq(min(ITM$elevation), max(ITM$elevation), length.out=21)
+
+ggplot()+
+  # geom_point(data=ITM_el, aes(x=elevation, y=mean_itm, size=count), color='blue', alpha=.5)+
+  geom_point(data=ITM, aes(x=elevation, y=number.of.lang), color='blue', alpha=.5)+
+  geom_line(data=pred, aes(x=true_sequence, y=predicted), size=0.8)+
+  geom_ribbon(aes(ymin = pred$conf.low, ymax = pred$conf.high, x=true_sequence), alpha = .15)+
+  theme_bw()+
+  labs(x = "Elevation", y='Average ITM', size=' Number\n of observations')
+
+ggsave('poison_observ_point_2.jpg', width = 7, height = 4)
+```
+
+```{r}
+ggplot()+
+  geom_point(data=ITM_el, aes(x=elevation, y=mean_itm, size=count), color='blue', alpha=.5)+
+  # geom_point(data=ITM, aes(x=elevation, y=number.of.lang), color='blue', alpha=.5)+
+  geom_line(data=pred, aes(x=true_sequence, y=predicted), size=0.8)+
+  geom_ribbon(aes(ymin = pred$conf.low, ymax = pred$conf.high, x=true_sequence), alpha = .15)+
+  theme_bw()+
+  labs(x = "Elevation", y='Average ITM', size=' Number\n of observations')
+```
+
+
 ### Case stydy: languages spoken at the highest attitudes: 
 
 Hypothesis: isolation is not the primary source of language diversity. 
+
+```{r}
+data %>% 
+  group_by(el_100) %>%  
+  summarise(count = n()) %>% 
+  ggplot(aes(y=el_100, x=count)) + 
+  geom_point()
+  
+```
+
 
 ```{r}
 all$rounded.yb <- plyr::round_any(all$year_of_birth, 5, f = ceiling)
